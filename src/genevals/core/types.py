@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from genevals.gating import GateResult, Threshold
+    from genevals.significance import ComparisonResult
 
 
 def utcnow() -> datetime:
@@ -91,3 +95,29 @@ class EvalReport(BaseModel):
         from genevals.reporting.html import report_to_html
 
         report_to_html(self, path)
+
+    def check_thresholds(self, thresholds: list[Threshold]) -> GateResult:
+        from genevals.gating import check_thresholds
+
+        return check_thresholds(self, thresholds)
+
+    def assert_thresholds(self, thresholds: list[Threshold]) -> None:
+        from genevals.gating import assert_thresholds
+
+        assert_thresholds(self, thresholds)
+
+    def compare_targets(
+        self,
+        metric: str,
+        target_a: str,
+        target_b: str,
+        *,
+        n_resamples: int = 10_000,
+        alpha: float = 0.05,
+        seed: int | None = None,
+    ) -> ComparisonResult:
+        from genevals.significance import compare_targets
+
+        return compare_targets(
+            self, metric, target_a, target_b, n_resamples=n_resamples, alpha=alpha, seed=seed
+        )

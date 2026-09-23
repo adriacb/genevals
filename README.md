@@ -122,6 +122,22 @@ report.to_yaml("report.yaml")
   live in `src/genevals/presets/use_cases.yaml` — point
   `UseCaseCatalog(path=...)` at your own copy (same shape) to customize them
   for your org.
+- **`genevals.gating`** — assert a report clears a quality bar, for CI:
+  `report.assert_thresholds([Threshold("exact_match", ">=", 0.8)])` raises
+  `ThresholdViolation` if not (pytest-friendly); `report.check_thresholds(...)`
+  returns a `GateResult` instead of raising, if you want to build your own
+  reporting on top. The CLI exposes the same thing: `genevals run ... --gate
+  "exact_match>=0.8"` exits 1 on failure.
+- **`genevals.significance`** — `report.compare_targets(metric, a, b)` runs a
+  paired bootstrap test (no scipy needed) and tells you whether target A is
+  *actually* different from target B on a metric, or within noise given how
+  few samples you ran. Worth checking before reading anything into a small
+  mean difference — see "Reliability" below for a real example where it
+  mattered.
+- **`CachedExecutor`** (`genevals.executors`) — wraps any `Executor`, caching
+  identical prompts (in-memory, or persisted to a JSONL file with `path=`) so
+  iterating on one metric or target doesn't re-pay for every unchanged
+  sample. `cached.hits` / `.misses` tell you how much it's saving.
 
 ## Reliability, rate limits, and observability
 
@@ -150,6 +166,21 @@ report.to_yaml("report.yaml")
   line, an alert) — failures are recorded in the report either way, with or
   without a listener. See `examples/quickstart.py` for a minimal one.
 
+**A real example of why `compare_targets` matters**: `public_dataset_demo.py`
+compares direct vs. chain-of-thought prompting and its `correctness` judge
+scores looked different run to run (e.g. 0.86 vs. 0.76 in one run, 0.75 vs.
+0.75 in another — real LLM non-determinism). It's tempting to read that as
+"CoT helps." Running `report.compare_targets("correctness", "direct",
+"chain-of-thought")` on that same report says otherwise:
+
+```
+direct vs chain-of-thought on correctness (n=12): mean_diff=-0.013
+(95% CI [-0.192, +0.196]), p=0.867 -> not significant
+```
+
+At n=12 the difference is comfortably within noise — the report alone would
+have let that conclusion stand unchallenged.
+
 ## CLI
 
 ```bash
@@ -157,11 +188,14 @@ genevals catalog
 genevals run --dataset data.jsonl \
   --target mymodule:my_target --target mymodule:other_target \
   --metric exact_match --metric token_f1 \
-  --html report.html
+  --html report.html \
+  --gate "exact_match>=0.8" --gate "token_f1>=0.5"
 ```
 
 `--target` points at a `module:attribute` that resolves to a `Target`
-instance (e.g. a `SimpleTarget` you built in `mymodule.py`).
+instance (e.g. a `SimpleTarget` you built in `mymodule.py`). `--gate` is
+optional and repeatable — the process exits 1 if any threshold fails, for
+CI.
 
 ## Roadmap
 

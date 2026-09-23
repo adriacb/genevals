@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import re
 import sys
 
 from genevals.core.dataset import Dataset
 from genevals.evaluator import Evaluator
+from genevals.gating import Threshold, check_thresholds
 from genevals.metrics.catalog import CATALOG
+
+_THRESHOLD_RE = re.compile(r"^([\w.:\-]+)\s*(>=|<=|==|!=|>|<)\s*([0-9.]+)$")
 
 
 def _cmd_catalog(_: argparse.Namespace) -> None:
@@ -23,6 +27,14 @@ def _load_attr(spec: str):
         raise SystemExit(f"expected 'module:attribute', got {spec!r}")
     module = importlib.import_module(module_name)
     return getattr(module, attr)
+
+
+def _parse_threshold(spec: str) -> Threshold:
+    match = _THRESHOLD_RE.match(spec.strip())
+    if not match:
+        raise SystemExit(f"invalid --gate {spec!r}, expected e.g. 'exact_match>=0.8'")
+    metric, comparator, value = match.groups()
+    return Threshold(metric=metric, comparator=comparator, value=float(value))  # type: ignore[arg-type]
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
@@ -40,6 +52,14 @@ def _cmd_run(args: argparse.Namespace) -> None:
     if not (args.json or args.yaml or args.html):
         print(report.to_json())
 
+    if args.gate:
+        thresholds = [_parse_threshold(spec) for spec in args.gate]
+        gate = check_thresholds(report, thresholds)
+        for result in gate.results:
+            print(result)
+        if not gate.passed:
+            raise SystemExit(1)
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="genevals")
@@ -56,6 +76,12 @@ def main(argv: list[str] | None = None) -> None:
     p_run.add_argument("--json")
     p_run.add_argument("--yaml")
     p_run.add_argument("--html")
+    p_run.add_argument(
+        "--gate",
+        action="append",
+        default=[],
+        help="e.g. 'exact_match>=0.8', repeatable; exits 1 if any threshold fails",
+    )
     p_run.set_defaults(func=_cmd_run)
 
     args = parser.parse_args(argv)
