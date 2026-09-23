@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.venv/
+dist/
+build/
+*.egg-info/
+examples/report.json
+examples/report.yaml
+examples/report.html
+examples/anthropic_live_report.*
+examples/public_dataset_report.*
+examples/vlm_report.*

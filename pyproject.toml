@@ -1,0 +1,61 @@
+[project]
+name = "genevals"
+version = "0.1.0"
+description = "A pluggable evaluation package for generative AI systems: LLMs, chatbots, RAG/agent pipelines, and (soon) vision-language models."
+readme = "README.md"
+authors = [
+    { name = "Adria Cabello", email = "cabl.adria@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0.3",
+]
+
+[project.optional-dependencies]
+rag = ["ragas>=0.2"]
+inspect = ["inspect-ai>=0.3"]
+jev = ["httpx>=0.27"]
+anthropic = ["anthropic>=0.40"]
+
+[project.scripts]
+genevals = "genevals.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/genevals"]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "types-pyyaml",
+]
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "C4", "E", "F", "W", "UP"]
+ignore = ["E501"]
+
+[tool.ruff]
+include = ["**/*.py", "**/*.pyi", "**/pyproject.toml"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+addopts = "--maxfail=1 --cov=src/ --cov-report=term-missing"
+pythonpath = ["src"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["httpx", "ragas.*", "inspect_ai.*", "anthropic", "anthropic.*"]
+ignore_missing_imports = true

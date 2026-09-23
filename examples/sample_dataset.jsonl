@@ -1,0 +1,3 @@
+{"id": "1", "input": "What is the capital of France?", "reference": "Paris", "tags": {"topic": "geography", "difficulty": "easy"}}
+{"id": "2", "input": "What is the capital of Japan?", "reference": "Tokyo", "tags": {"topic": "geography", "difficulty": "easy"}}
+{"id": "3", "input": "Summarize: The quick brown fox jumps over the lazy dog.", "reference": "A fox jumps over a dog.", "tags": {"topic": "summarization", "difficulty": "medium"}}
