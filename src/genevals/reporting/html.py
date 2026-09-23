@@ -97,6 +97,7 @@ input[type=text] { flex: 1; min-width: 220px; }
 .ecdf-svg .grid { stroke: var(--grid); stroke-width: 1; }
 .ecdf-svg .baseline { stroke: var(--baseline); stroke-width: 1; }
 .ecdf-svg .axis-label { fill: var(--text-muted); font-size: 9.5px; }
+.ecdf-svg .axis-title { fill: var(--text-muted); font-size: 9.5px; font-weight: 600; }
 .ecdf-svg .axis-direction { fill: var(--text-muted); font-size: 9px; font-style: italic; text-transform: uppercase; letter-spacing: .03em; }
 .ecdf-svg .axis-direction-bg { fill: var(--surface); opacity: 0.88; }
 .ecdf-svg .crosshair { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 2; }
@@ -350,8 +351,8 @@ function niceTicks(min, max, count) {
 function renderEcdfChart(container, valuesByTarget, presentTargets, opts) {
   opts = opts || {};
   const complement = !!opts.complement;
-  const showCaption = !!opts.showCaption;
-  const captionText = opts.captionText || "↑ better";
+  const xLabel = opts.xLabel || null;
+  const yLabel = opts.yLabel || null;
 
   const targets = presentTargets.filter(t => valuesByTarget[t] && valuesByTarget[t].length);
   if (!targets.length) { container.innerHTML = '<p class="empty">no numeric data for the current filter</p>'; return; }
@@ -370,7 +371,7 @@ function renderEcdfChart(container, valuesByTarget, presentTargets, opts) {
   // tried first and rejected: it makes "the lower curve wins" the rule,
   // which isn't the upper-left reading this is meant to give.
 
-  const W = 460, H = 220, M = { top: 10, right: 14, bottom: 26, left: 40 };
+  const W = 460, H = 220, M = { top: 10, right: 14, bottom: 40, left: 40 };
   const plotW = W - M.left - M.right, plotH = H - M.top - M.bottom;
   const xScale = x => M.left + ((x - xmin) / (xmax - xmin)) * plotW;
   const yScale = y => M.top + (1 - y) * plotH;
@@ -388,16 +389,19 @@ function renderEcdfChart(container, valuesByTarget, presentTargets, opts) {
   for (const xt of xTicks) {
     svg += '<text class="axis-label" x="' + xScale(xt) + '" y="' + (H - M.bottom + 15) + '" text-anchor="middle">' + esc(formatNum(xt)) + "</text>";
   }
+  if (xLabel) {
+    svg += '<text class="axis-title" x="' + (M.left + plotW / 2) + '" y="' + (H - 6) + '" text-anchor="middle">' + esc(xLabel) + "</text>";
+  }
   svg += '<line class="baseline" x1="' + M.left + '" x2="' + (W - M.right) + '" y1="' + (H - M.bottom) + '" y2="' + (H - M.bottom) + '" />';
   for (const s of series) {
     svg += '<path d="' + pathFromSteps(s.steps, xmin, xmax, xScale, yScale, complement) + '" fill="none" stroke="' + s.color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />';
   }
   svg += '<rect class="hover-rect" x="' + M.left + '" y="' + M.top + '" width="' + plotW + '" height="' + plotH + '" fill="transparent" />';
   svg += '<line class="crosshair" x1="0" x2="0" y1="' + M.top + '" y2="' + (H - M.bottom) + '" hidden="hidden" />';
-  if (showCaption) {
-    const captionW = captionText.length * 5.2 + 8;
-    svg += '<rect class="axis-direction-bg" x="' + M.left + '" y="' + M.top + '" width="' + captionW + '" height="13" />';
-    svg += '<text class="axis-direction" x="' + (M.left + 4) + '" y="' + (M.top + 10) + '" text-anchor="start">' + esc(captionText) + "</text>";
+  if (yLabel) {
+    const labelW = yLabel.length * 5.2 + 8;
+    svg += '<rect class="axis-direction-bg" x="' + M.left + '" y="' + M.top + '" width="' + labelW + '" height="13" />';
+    svg += '<text class="axis-direction" x="' + (M.left + 4) + '" y="' + (M.top + 10) + '" text-anchor="start">' + esc(yLabel) + "</text>";
   }
   svg += "</svg>";
   container.innerHTML = svg;
@@ -573,17 +577,21 @@ function renderMetricCards(results) {
         const gapsByTarget = gapsToBest(perSample, numericTargets, direction);
         renderEcdfChart(chartWrap, gapsByTarget, numericTargets, {
           complement: false,
-          showCaption: true,
-          captionText: "↑ better (0 = tied for best)",
+          xLabel: "gap to best (0 = tied for best)",
+          yLabel: "% of samples ↑ better",
           xPrefix: "gap",
         });
       } else if (direction === true || direction === false) {
         renderEcdfChart(chartWrap, valuesByTarget, presentTargets, {
           complement: direction === true,
-          showCaption: true,
+          xLabel: direction === true ? "score (higher is better)" : "value (lower is better)",
+          yLabel: "% of samples ↑ better",
         });
       } else {
-        renderEcdfChart(chartWrap, valuesByTarget, presentTargets, {});
+        renderEcdfChart(chartWrap, valuesByTarget, presentTargets, {
+          xLabel: "value",
+          yLabel: "% of samples",
+        });
       }
     } else if (hasPass) {
       const meterWrap = document.createElement("div");
