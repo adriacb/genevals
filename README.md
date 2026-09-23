@@ -4,10 +4,12 @@ A pluggable evaluation package for generative AI systems: single model calls,
 whole RAG/agent pipelines, and multi-turn chatbots — with a metrics catalog,
 tag-based filtering, and JSON/YAML/HTML reports. The HTML report is built for
 a mixed technical/business audience: KPI-style stat tiles, mean/median/min/max
-and an ECDF plot per metric, and a click-to-expand row on every sample showing
-input / expected output / actual output, why each metric passed or failed,
-and — when you're comparing targets — what every other target produced for
-that same input, right in the same panel.
+and an ECDF plot per metric with a "worst results" shortlist (click one to
+jump straight to it in the sample table below), sortable metric columns for
+triage, and a click-to-expand row on every sample showing input / expected
+output / actual output, why each metric passed or failed, and — when you're
+comparing targets — what every other target produced for that same input,
+right in the same panel.
 
 v1 targets text (LLM) systems. Vision-language model (VLM) evaluation is
 planned for v2 (see "Roadmap").

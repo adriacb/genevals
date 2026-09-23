@@ -133,6 +133,20 @@ tr.detail-row td { background: var(--plane); padding: 14px 18px; border-bottom: 
 .detail-compare-row:last-child { margin-bottom: 0; }
 .detail-compare-target { font-size: 11.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; }
 .detail-compare-scores { font-size: 11px; color: var(--text-muted); margin-top: 5px; }
+.worst-offenders { margin-top: 14px; }
+.worst-item { display: flex; align-items: center; gap: 8px; border-left: 3px solid var(--baseline); border-radius: 4px; padding: 5px 8px; margin-bottom: 3px; cursor: pointer; font-size: 12px; background: var(--plane); }
+.worst-item:hover, .worst-item:focus-visible { background: var(--surface); outline: 1px solid var(--border); }
+.worst-item-value { flex: 0 0 44px; font-variant-numeric: tabular-nums; }
+.worst-item-target { flex: 0 0 110px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worst-item-text { flex: 1; min-width: 0; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text-primary); }
+tr.result-row.flash td { animation: genevals-flash 1.2s ease-out; }
+@keyframes genevals-flash {
+  0% { background: var(--plane); }
+  35% { background: rgba(208, 59, 59, 0.22); }
+  100% { background: var(--plane); }
+}
 footer { padding: 8px 28px 28px; color: var(--text-muted); font-size: 12px; }
 
 #chart-tooltip { position: fixed; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); pointer-events: none; }
@@ -418,6 +432,20 @@ function renderMeter(container, passByTarget, presentTargets) {
 
 // ---- metric cards ----
 
+function worstOffenders(metric, results, limit) {
+  const failed = [];
+  for (const r of results) {
+    const s = r.scores.find(sc => sc.metric === metric);
+    if (s && s.passed === false) failed.push({ r, s });
+  }
+  failed.sort((a, b) => {
+    const av = a.s.value, bv = b.s.value;
+    if (av !== null && av !== undefined && bv !== null && bv !== undefined) return av - bv;
+    return 0;
+  });
+  return failed.slice(0, limit);
+}
+
 function renderMetricCards(results) {
   const container = document.getElementById("metric-cards");
   container.innerHTML = "";
@@ -425,7 +453,6 @@ function renderMetricCards(results) {
   for (const metric of metricNames) {
     const valuesByTarget = {};
     const passByTarget = {};
-    let category = "";
     for (const r of results) {
       const s = r.scores.find(sc => sc.metric === metric);
       if (!s) continue;
@@ -487,6 +514,32 @@ function renderMetricCards(results) {
       renderMeter(meterWrap, passByTarget, presentTargets);
     }
 
+    const worst = worstOffenders(metric, results, 5);
+    if (worst.length) {
+      const section = document.createElement("div");
+      section.className = "worst-offenders";
+      const label = document.createElement("div");
+      label.className = "detail-label";
+      label.textContent = "worst results";
+      section.appendChild(label);
+      for (const { r, s } of worst) {
+        const item = document.createElement("div");
+        item.className = "worst-item";
+        item.style.borderLeftColor = targetColor[r.target];
+        item.tabIndex = 0;
+        item.innerHTML =
+          '<span class="worst-item-value fail">' + esc(scoreValueLabel(s)) + "</span>" +
+          '<span class="worst-item-target">' + esc(r.target) + "</span>" +
+          '<span class="worst-item-text">' + esc(r.input) + "</span>";
+        item.addEventListener("click", () => jumpToSample(r.sample_id, r.target));
+        item.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); jumpToSample(r.sample_id, r.target); }
+        });
+        section.appendChild(item);
+      }
+      card.appendChild(section);
+    }
+
     container.appendChild(card);
   }
 }
@@ -538,13 +591,45 @@ function detailPanel(r) {
   return '<div class="detail">' + blocks.join("") + "</div>";
 }
 
+function scoreSortValue(result, metric) {
+  const s = result.scores.find(sc => sc.metric === metric);
+  if (!s) return null;
+  if (s.value !== null && s.value !== undefined) return s.value;
+  if (s.passed !== null && s.passed !== undefined) return s.passed ? 1 : 0;
+  if (s.label !== null && s.label !== undefined) return s.label;
+  return null;
+}
+
+function sortRows(rows) {
+  if (!sortState.key) return rows;
+  const dir = sortState.dir === "desc" ? -1 : 1;
+  const sorted = [...rows];
+  sorted.sort((a, b) => {
+    const av = sortState.key === "error" ? (a.output.error || "") : scoreSortValue(a, sortState.key);
+    const bv = sortState.key === "error" ? (b.output.error || "") : scoreSortValue(b, sortState.key);
+    const aNull = av === null || av === undefined || av === "";
+    const bNull = bv === null || bv === undefined || bv === "";
+    if (aNull && bNull) return 0;
+    if (aNull) return 1; // unscored rows always sort last, regardless of direction
+    if (bNull) return -1;
+    if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+  return sorted;
+}
+
 function renderTable(filtered) {
   const thead = document.querySelector("#results thead");
   const tbody = document.querySelector("#results tbody");
   const colCount = 7 + metricNames.length;
+
+  const sortArrow = (key) => (sortState.key === key ? (sortState.dir === "desc" ? " ▼" : " ▲") : "");
   thead.innerHTML = "<tr><th></th><th>id</th><th>target</th><th>tags</th><th>input</th><th>output</th>" +
-    metricNames.map(m => "<th>" + esc(m) + "</th>").join("") + "<th>error</th></tr>";
-  tbody.innerHTML = filtered.map(r => '<tr class="result-row">' +
+    metricNames.map(m => '<th class="sortable" data-sort-key="' + esc(m) + '">' + esc(m) + sortArrow(m) + "</th>").join("") +
+    '<th class="sortable" data-sort-key="error">error' + sortArrow("error") + "</th></tr>";
+
+  const rows = sortRows(filtered);
+  tbody.innerHTML = rows.map(r => '<tr class="result-row" data-sample-id="' + esc(r.sample_id) + '" data-target="' + esc(r.target) + '">' +
     '<td class="expand-cell">&#9656;</td>' +
     "<td>" + esc(r.sample_id) + "</td>" +
     "<td>" + esc(r.target) + "</td>" +
@@ -561,12 +646,36 @@ function renderTable(filtered) {
 
 // ---- wiring ----
 
+let currentFiltered = [];
+let sortState = { key: null, dir: null };
+
 function applyFilters() {
   const f = currentFilters();
   const filtered = allResults.filter(r => matches(r, f));
+  currentFiltered = filtered;
   renderKPIs(filtered);
   renderMetricCards(filtered);
   renderTable(filtered);
+}
+
+function toggleRowDetail(row, forceOpen) {
+  const detail = row.nextElementSibling;
+  if (!detail || !detail.classList.contains("detail-row")) return;
+  const shouldOpen = forceOpen === undefined ? detail.hidden : forceOpen;
+  detail.hidden = !shouldOpen;
+  const cell = row.querySelector(".expand-cell");
+  if (cell) cell.innerHTML = detail.hidden ? "&#9656;" : "&#9662;";
+}
+
+function jumpToSample(sampleId, target) {
+  const row = document.querySelector(
+    'tr.result-row[data-sample-id="' + CSS.escape(sampleId) + '"][data-target="' + CSS.escape(target) + '"]'
+  );
+  if (!row) return; // filtered out of the current view
+  toggleRowDetail(row, true);
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  row.classList.add("flash");
+  setTimeout(() => row.classList.remove("flash"), 1200);
 }
 
 function syncThemeIcon() {
@@ -611,11 +720,16 @@ function init() {
   document.getElementById("f-search").addEventListener("input", applyFilters);
   document.querySelector("#results tbody").addEventListener("click", (e) => {
     const row = e.target.closest("tr.result-row");
-    if (!row) return;
-    const detail = row.nextElementSibling;
-    if (!detail || !detail.classList.contains("detail-row")) return;
-    detail.hidden = !detail.hidden;
-    row.querySelector(".expand-cell").innerHTML = detail.hidden ? "&#9656;" : "&#9662;";
+    if (row) toggleRowDetail(row);
+  });
+  document.querySelector("#results thead").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-sort-key]");
+    if (!th) return;
+    const key = th.dataset.sortKey;
+    if (sortState.key !== key) sortState = { key, dir: "asc" };
+    else if (sortState.dir === "asc") sortState = { key, dir: "desc" };
+    else sortState = { key: null, dir: null };
+    renderTable(currentFiltered);
   });
   applyFilters();
 }
