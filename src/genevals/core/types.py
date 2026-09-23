@@ -77,6 +77,10 @@ class EvalReport(BaseModel):
     dataset_name: str | None = None
     targets: list[str] = Field(default_factory=list)
     metrics: list[str] = Field(default_factory=list)
+    # Per-metric name -> Metric.higher_is_better, so a report renderer (the
+    # HTML report's ECDF charts) can orient "better" consistently without
+    # re-deriving it from raw scores.
+    metric_directions: dict[str, bool | None] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utcnow)
     results: list[SampleResult] = Field(default_factory=list)
     summary: dict[str, Any] = Field(default_factory=dict)

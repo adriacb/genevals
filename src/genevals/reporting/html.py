@@ -97,6 +97,8 @@ input[type=text] { flex: 1; min-width: 220px; }
 .ecdf-svg .grid { stroke: var(--grid); stroke-width: 1; }
 .ecdf-svg .baseline { stroke: var(--baseline); stroke-width: 1; }
 .ecdf-svg .axis-label { fill: var(--text-muted); font-size: 9.5px; }
+.ecdf-svg .axis-direction { fill: var(--text-muted); font-size: 9px; font-style: italic; text-transform: uppercase; letter-spacing: .03em; }
+.ecdf-svg .axis-direction-bg { fill: var(--surface); opacity: 0.88; }
 .ecdf-svg .crosshair { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 2; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 11.5px; color: var(--text-secondary); }
 .legend-item { display: inline-flex; align-items: center; }
@@ -198,6 +200,7 @@ const report = JSON.parse(document.getElementById("report-data").textContent);
 const allResults = report.results;
 const allTargets = report.targets;
 const metricNames = report.metrics;
+const metricDirections = report.metric_directions || {};
 
 const targetColor = {};
 allTargets.forEach((t, i) => { targetColor[t] = "var(--series-" + ((i % 8) + 1) + ")"; });
@@ -314,10 +317,17 @@ function ecdfValueAt(steps, x) {
   return y;
 }
 
-function pathFromSteps(steps, xmin, xmax, xScale, yScale) {
-  let d = "M " + xScale(xmin) + " " + yScale(0);
+function pathFromSteps(steps, xmin, xmax, xScale, yScale, complement) {
+  // complement plots 1-F(x) (the survival function) instead of F(x), so a
+  // higher-is-better metric's curve sits HIGHER when the target is doing
+  // better — same "up = better" reading as a lower-is-better metric's plain
+  // ECDF, instead of the opposite (a plain ECDF's rise is necessarily LATE
+  // for a good higher-is-better distribution, which reads backwards).
+  const y0 = complement ? 1 : 0;
+  let d = "M " + xScale(xmin) + " " + yScale(y0);
   for (const [v, y] of steps) {
-    d += " H " + xScale(v) + " V " + yScale(y);
+    const yy = complement ? 1 - y : y;
+    d += " H " + xScale(v) + " V " + yScale(yy);
   }
   d += " H " + xScale(xmax);
   return d;
@@ -337,7 +347,12 @@ function niceTicks(min, max, count) {
   return ticks;
 }
 
-function renderEcdfChart(container, valuesByTarget, presentTargets) {
+function renderEcdfChart(container, valuesByTarget, presentTargets, opts) {
+  opts = opts || {};
+  const complement = !!opts.complement;
+  const showCaption = !!opts.showCaption;
+  const captionText = opts.captionText || "↑ better";
+
   const targets = presentTargets.filter(t => valuesByTarget[t] && valuesByTarget[t].length);
   if (!targets.length) { container.innerHTML = '<p class="empty">no numeric data for the current filter</p>'; return; }
 
@@ -346,6 +361,14 @@ function renderEcdfChart(container, valuesByTarget, presentTargets) {
   const dataMax = Math.max(...allValues);
   let xmin = dataMin, xmax = dataMax;
   if (xmin === xmax) { xmin -= 1; xmax += 1; } else { const pad = (xmax - xmin) * 0.04; xmin -= pad; xmax += pad; }
+
+  // complement plots 1-F(x) (the survival function) instead of F(x): a
+  // target doing well then has its curve sit HIGH — the same "up = better"
+  // reading a lower-is-better raw value's plain ECDF already has (a
+  // fast/cheap target's mass sits at low x, so its plain F(x) rises early
+  // and stays high). Flipping the x-axis instead of complementing y was
+  // tried first and rejected: it makes "the lower curve wins" the rule,
+  // which isn't the upper-left reading this is meant to give.
 
   const W = 460, H = 220, M = { top: 10, right: 14, bottom: 26, left: 40 };
   const plotW = W - M.left - M.right, plotH = H - M.top - M.bottom;
@@ -367,10 +390,15 @@ function renderEcdfChart(container, valuesByTarget, presentTargets) {
   }
   svg += '<line class="baseline" x1="' + M.left + '" x2="' + (W - M.right) + '" y1="' + (H - M.bottom) + '" y2="' + (H - M.bottom) + '" />';
   for (const s of series) {
-    svg += '<path d="' + pathFromSteps(s.steps, xmin, xmax, xScale, yScale) + '" fill="none" stroke="' + s.color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />';
+    svg += '<path d="' + pathFromSteps(s.steps, xmin, xmax, xScale, yScale, complement) + '" fill="none" stroke="' + s.color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />';
   }
   svg += '<rect class="hover-rect" x="' + M.left + '" y="' + M.top + '" width="' + plotW + '" height="' + plotH + '" fill="transparent" />';
   svg += '<line class="crosshair" x1="0" x2="0" y1="' + M.top + '" y2="' + (H - M.bottom) + '" hidden="hidden" />';
+  if (showCaption) {
+    const captionW = captionText.length * 5.2 + 8;
+    svg += '<rect class="axis-direction-bg" x="' + M.left + '" y="' + M.top + '" width="' + captionW + '" height="13" />';
+    svg += '<text class="axis-direction" x="' + (M.left + 4) + '" y="' + (M.top + 10) + '" text-anchor="start">' + esc(captionText) + "</text>";
+  }
   svg += "</svg>";
   container.innerHTML = svg;
 
@@ -405,8 +433,10 @@ function renderEcdfChart(container, valuesByTarget, presentTargets) {
     crosshair.setAttribute("x2", px);
     crosshair.hidden = false;
 
-    tooltip.innerHTML = '<div class="tt-x">' + esc(formatNum(xVal)) + "</div>" + series.map(s => {
-      const y = ecdfValueAt(s.steps, xVal);
+    const xPrefix = opts.xPrefix ? esc(opts.xPrefix) + " " : "";
+    tooltip.innerHTML = '<div class="tt-x">' + xPrefix + esc(formatNum(xVal)) + "</div>" + series.map(s => {
+      const raw = ecdfValueAt(s.steps, xVal);
+      const y = complement ? 1 - raw : raw;
       return '<div class="tt-row"><span class="tt-key" style="display:inline-block;width:10px;height:2px;background:' + s.color +
         ';border-radius:1px"></span><span class="tt-val">' + esc(formatPct(y)) + '</span><span class="tt-name">' + esc(s.target) + "</span></div>";
     }).join("");
@@ -446,6 +476,31 @@ function worstOffenders(metric, results, limit) {
   return failed.slice(0, limit);
 }
 
+function gapsToBest(perSample, targets, direction) {
+  // Per sample, how far each target's value is from the BEST OBSERVED value
+  // among the targets being compared on that same sample (0 = tied for
+  // best) — not from the metric's theoretical ceiling (e.g. 1.0 for an
+  // F1-shaped metric), which the dataset may never actually reach and which
+  // doesn't exist at all for unbounded metrics like latency. This is the
+  // additive analogue of a Dolan-Moré performance profile (the standard
+  // technique for comparing several systems across many cases): plain
+  // ratios blow up on the exact 0/1 ties eval metrics produce constantly,
+  // so gap (difference) stands in for ratio here.
+  const gapsByTarget = {};
+  for (const sampleId in perSample) {
+    const row = perSample[sampleId];
+    const here = targets.filter(t => row[t] !== undefined);
+    if (!here.length) continue;
+    const vals = here.map(t => row[t]);
+    const best = direction ? Math.max(...vals) : Math.min(...vals);
+    for (const t of here) {
+      const gap = direction ? best - row[t] : row[t] - best;
+      (gapsByTarget[t] = gapsByTarget[t] || []).push(gap);
+    }
+  }
+  return gapsByTarget;
+}
+
 function renderMetricCards(results) {
   const container = document.getElementById("metric-cards");
   container.innerHTML = "";
@@ -453,10 +508,14 @@ function renderMetricCards(results) {
   for (const metric of metricNames) {
     const valuesByTarget = {};
     const passByTarget = {};
+    const perSample = {};
     for (const r of results) {
       const s = r.scores.find(sc => sc.metric === metric);
       if (!s) continue;
-      if (s.value !== null && s.value !== undefined) (valuesByTarget[r.target] = valuesByTarget[r.target] || []).push(s.value);
+      if (s.value !== null && s.value !== undefined) {
+        (valuesByTarget[r.target] = valuesByTarget[r.target] || []).push(s.value);
+        (perSample[r.sample_id] = perSample[r.sample_id] || {})[r.target] = s.value;
+      }
       if (s.passed !== null && s.passed !== undefined) (passByTarget[r.target] = passByTarget[r.target] || []).push(s.passed);
     }
     const presentTargets = allTargets.filter(t => (valuesByTarget[t] && valuesByTarget[t].length) || (passByTarget[t] && passByTarget[t].length));
@@ -507,7 +566,25 @@ function renderMetricCards(results) {
       const chartWrap = document.createElement("div");
       chartWrap.className = "chart-wrap";
       card.appendChild(chartWrap);
-      renderEcdfChart(chartWrap, valuesByTarget, presentTargets);
+
+      const direction = metricDirections[metric];
+      const numericTargets = presentTargets.filter(t => valuesByTarget[t] && valuesByTarget[t].length);
+      if (numericTargets.length >= 2 && (direction === true || direction === false)) {
+        const gapsByTarget = gapsToBest(perSample, numericTargets, direction);
+        renderEcdfChart(chartWrap, gapsByTarget, numericTargets, {
+          complement: false,
+          showCaption: true,
+          captionText: "↑ better (0 = tied for best)",
+          xPrefix: "gap",
+        });
+      } else if (direction === true || direction === false) {
+        renderEcdfChart(chartWrap, valuesByTarget, presentTargets, {
+          complement: direction === true,
+          showCaption: true,
+        });
+      } else {
+        renderEcdfChart(chartWrap, valuesByTarget, presentTargets, {});
+      }
     } else if (hasPass) {
       const meterWrap = document.createElement("div");
       card.appendChild(meterWrap);

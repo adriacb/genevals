@@ -110,6 +110,7 @@ class Length(Metric):
     name = "length"
     category = "shape"
     needs_reference = False
+    higher_is_better = None
     description = "Character length of the output text (informational, no pass/fail)."
 
     async def evaluate(self, sample: Sample, output: Output) -> MetricResult:

@@ -3,6 +3,7 @@ import pytest
 from genevals.core.dataset import Dataset
 from genevals.core.types import Sample
 from genevals.evaluator import Evaluator
+from genevals.metrics.operational import Latency
 from genevals.metrics.text import ExactMatch, Length
 from genevals.targets.chat import ChatTarget
 from genevals.targets.simple import SimpleTarget
@@ -50,6 +51,13 @@ async def test_failing_target_does_not_crash_the_run():
     assert len(report.results) == 2
     assert all(r.output.error for r in report.results)
     assert all(r.scores == [] for r in report.results)
+
+
+@pytest.mark.asyncio
+async def test_metric_directions_are_captured_on_the_report():
+    target = SimpleTarget("t", lambda s: s.reference)
+    report = await Evaluator(make_dataset(), [target], [ExactMatch(), Latency()]).run_async()
+    assert report.metric_directions == {"exact_match": True, "latency_ms": False}
 
 
 @pytest.mark.asyncio

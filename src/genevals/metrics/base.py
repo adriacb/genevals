@@ -21,6 +21,10 @@ class Metric(ABC):
     modality: str = "text"
     needs_reference: bool = False
     description: str = ""
+    # True: higher score = better (most metrics — correctness, F1, judge scores).
+    # False: lower = better (latency, cost). None: no inherent direction
+    # (e.g. length) — the report shouldn't imply one either.
+    higher_is_better: bool | None = True
 
     @abstractmethod
     async def evaluate(self, sample: Sample, output: Output) -> MetricResult: ...

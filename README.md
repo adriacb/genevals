@@ -4,12 +4,13 @@ A pluggable evaluation package for generative AI systems: single model calls,
 whole RAG/agent pipelines, and multi-turn chatbots — with a metrics catalog,
 tag-based filtering, and JSON/YAML/HTML reports. The HTML report is built for
 a mixed technical/business audience: KPI-style stat tiles, mean/median/min/max
-and an ECDF plot per metric with a "worst results" shortlist (click one to
-jump straight to it in the sample table below), sortable metric columns for
-triage, and a click-to-expand row on every sample showing input / expected
-output / actual output, why each metric passed or failed, and — when you're
-comparing targets — what every other target produced for that same input,
-right in the same panel.
+and a distribution plot per metric (see "Reading the distribution plots"
+below — it's not a plain ECDF, and that's deliberate) with a "worst results"
+shortlist (click one to jump straight to it in the sample table below),
+sortable metric columns for triage, and a click-to-expand row on every
+sample showing input / expected output / actual output, why each metric
+passed or failed, and — when you're comparing targets — what every other
+target produced for that same input, right in the same panel.
 
 v1 targets text (LLM) systems. Vision-language model (VLM) evaluation is
 planned for v2 (see "Roadmap").
@@ -218,6 +219,38 @@ direct vs chain-of-thought on correctness (n=12): mean_diff=-0.013
 
 At n=12 the difference is comfortably within noise — the report alone would
 have let that conclusion stand unchallenged.
+
+## Reading the distribution plots
+
+Each numeric metric's card in the HTML report plots a distribution, but
+**not** a plain ECDF of the raw values — that reads backwards for a
+higher-is-better metric (a well-performing target's plain ECDF necessarily
+rises *late*, near the bottom-right) and, worse, ties the chart to the
+metric's empirical range in *this* run, which distorts comparisons across
+runs and makes narrow-but-uniformly-mediocre performance look spread out.
+
+When you're comparing **two or more targets** on a metric with a known
+direction (`Metric.higher_is_better`), the chart instead plots, per sample,
+the **gap to the best target on that same sample** — 0 means tied for best,
+larger means further behind — and takes the plain ECDF of *that*. This is
+the additive analogue of a [Dolan–Moré performance
+profile](https://doi.org/10.1007/s101070100263) (2002, the standard
+technique in optimization/solver benchmarking for comparing several systems
+across many test cases): profiles normally use a *ratio* to the best
+solver, but eval metrics are full of exact 0/1 ties (every pass/fail
+metric), where ratios blow up — the gap (difference) is the standard fix for
+that, same idea as a regret distribution in bandit/RL evaluation. The result
+reads the same way regardless of the metric's own bound or direction: **the
+curve that rises fastest, up and to the left, is the better target** — no
+per-metric axis-flipping or knowing the metric's theoretical ceiling
+required, and it stays comparable across separate runs since it's always
+relative to what was actually achieved.
+
+With only one target present (or an unscored/directionless metric like
+`length`), there's no "best other target" to compare against, so the chart
+falls back to the plain distribution of that target's own values — flipped
+to a survival curve (`1 - F(x)`) for higher-is-better metrics, so "up" still
+means "better" rather than the opposite.
 
 ## CLI
 

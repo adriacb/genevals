@@ -51,6 +51,7 @@ class Evaluator:
             dataset_name=self.dataset.name,
             targets=[t.name for t in self.targets],
             metrics=[m.name for m in self.metrics],
+            metric_directions={m.name: m.higher_is_better for m in self.metrics},
             results=results,
             summary=compute_summary(results),
         )

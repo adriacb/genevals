@@ -10,6 +10,7 @@ class Latency(Metric):
     name = "latency_ms"
     category = "operational"
     needs_reference = False
+    higher_is_better = False
     description = "Wall-clock time the target took to produce this output, in milliseconds."
 
     async def evaluate(self, sample: Sample, output: Output) -> MetricResult:
@@ -20,6 +21,7 @@ class Cost(Metric):
     name = "cost_usd"
     category = "operational"
     needs_reference = False
+    higher_is_better = False
     description = "Cost of producing this output in USD, if the target reported one on its Output."
 
     async def evaluate(self, sample: Sample, output: Output) -> MetricResult:
