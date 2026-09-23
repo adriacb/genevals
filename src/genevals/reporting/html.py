@@ -81,7 +81,7 @@ section { padding: 20px 28px 4px; }
 select, input[type=text] { background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px; }
 input[type=text] { flex: 1; min-width: 220px; }
 
-.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 14px; }
 .metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 18px; }
 .metric-card-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
 .badge { font-size: 11px; color: var(--text-muted); background: var(--plane); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; }
