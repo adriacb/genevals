@@ -18,16 +18,24 @@ class _ThinkingBlock:
 
 
 @dataclass
+class _Usage:
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass
 class _Message:
     content: list
+    usage: _Usage | None = None
 
 
 class _FakeMessages:
     """Stands in for client.messages: tracks concurrent in-flight calls."""
 
-    def __init__(self, *, delay: float = 0.02, lead_with_thinking: bool = False):
+    def __init__(self, *, delay: float = 0.02, lead_with_thinking: bool = False, usage: _Usage | None = None):
         self.delay = delay
         self.lead_with_thinking = lead_with_thinking
+        self.usage = usage
         self.in_flight = 0
         self.max_in_flight = 0
         self._lock = asyncio.Lock()
@@ -41,7 +49,7 @@ class _FakeMessages:
             blocks = [_TextBlock(text="ok")]
             if self.lead_with_thinking:
                 blocks = [_ThinkingBlock(), *blocks]
-            return _Message(content=blocks)
+            return _Message(content=blocks, usage=self.usage)
         finally:
             async with self._lock:
                 self.in_flight -= 1
@@ -94,3 +102,47 @@ async def test_raises_clearly_when_no_text_block_present():
 
     with pytest.raises(ValueError, match="no text block"):
         await executor.complete("prompt")
+
+
+@pytest.mark.asyncio
+async def test_generate_computes_cost_from_usage():
+    client = _FakeClient(usage=_Usage(input_tokens=1000, output_tokens=2000))
+    executor = AnthropicExecutor(client, model="claude-haiku-4-5-20251001")
+
+    output = await executor.generate("prompt")
+
+    # haiku-4-5: $1.00/1M in, $5.00/1M out -> 1000*1.00/1e6 + 2000*5.00/1e6
+    assert output.cost_usd == pytest.approx(0.001 + 0.010)
+    assert output.raw["input_tokens"] == 1000
+    assert output.raw["output_tokens"] == 2000
+    assert output.latency_ms is not None and output.latency_ms >= 0
+
+
+@pytest.mark.asyncio
+async def test_generate_cost_is_none_without_usage():
+    client = _FakeClient(usage=None)
+    executor = AnthropicExecutor(client)
+
+    output = await executor.generate("prompt")
+
+    assert output.cost_usd is None
+
+
+@pytest.mark.asyncio
+async def test_pricing_override_wins_over_default_table():
+    client = _FakeClient(usage=_Usage(input_tokens=1_000_000, output_tokens=0))
+    executor = AnthropicExecutor(client, model="claude-haiku-4-5-20251001", pricing={"claude-haiku-4-5": (2.0, 0.0)})
+
+    output = await executor.generate("prompt")
+
+    assert output.cost_usd == pytest.approx(2.0)  # overridden $2/1M, not the default $1/1M
+
+
+@pytest.mark.asyncio
+async def test_complete_still_works_via_generate():
+    client = _FakeClient(usage=_Usage(input_tokens=10, output_tokens=10))
+    executor = AnthropicExecutor(client)
+
+    text = await executor.complete("prompt")
+
+    assert text == "ok"  # complete() discards cost/latency but text is unaffected

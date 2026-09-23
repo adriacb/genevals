@@ -30,6 +30,7 @@ Run with: uv run --extra anthropic python examples/public_dataset_demo.py
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from genevals import Dataset, Evaluator, SimpleTarget
@@ -70,6 +71,7 @@ def _get_api_key() -> str:
 def main() -> None:
     from anthropic import AsyncAnthropic
 
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # model output can contain any Unicode
     client = AsyncAnthropic(api_key=_get_api_key())
     direct_executor = AnthropicExecutor(client, model=FAST_MODEL, max_tokens=300)
     cot_executor = AnthropicExecutor(client, model=FAST_MODEL, max_tokens=500)
@@ -78,11 +80,13 @@ def main() -> None:
 
     dataset = Dataset.load(HERE / "public_dataset.jsonl", name="public-benchmarks")
 
+    # .generate() (not .complete()) so real cost/latency ride into Output for
+    # the "cost_usd"/"latency_ms" metrics in the generative_flow preset below.
     targets = [
-        SimpleTarget("direct", lambda sample: direct_executor.complete(sample.input), tags={"prompting": "direct"}),
+        SimpleTarget("direct", lambda sample: direct_executor.generate(sample.input), tags={"prompting": "direct"}),
         SimpleTarget(
             "chain-of-thought",
-            lambda sample: cot_executor.complete(sample.input + COT_SUFFIX),
+            lambda sample: cot_executor.generate(sample.input + COT_SUFFIX),
             tags={"prompting": "cot"},
         ),
     ]
@@ -99,7 +103,8 @@ def main() -> None:
     metrics = [
         Contains(),
         RegexMatch(r"\$\d+(?:\.\d+)?", name="currency_format"),
-        *USE_CASES.get("generative_flow").metrics(judge=judge),  # correctness, coherence, token_f1, latency_ms
+        # correctness, coherence, token_f1, latency_ms, cost_usd
+        *USE_CASES.get("generative_flow").metrics(judge=judge),
     ]
 
     print(f"targets: {[t.name for t in targets]}")

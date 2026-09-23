@@ -16,6 +16,10 @@ targets — but nothing persists across runs). With `path`, entries persist as
 an append-only JSONL file: simple, git-ignorable, human-inspectable. Not
 safe for two processes writing the same cache file concurrently — this is a
 dev-loop convenience, not a distributed cache.
+
+Only the text is cached (shared between `.complete()` and `.generate()`) —
+a `.generate()` cache hit correctly reports `cost_usd=0.0` and `latency_ms=0.0`
+since no new API call was made, with `raw={"cached": True}` marking it as such.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ import inspect
 import json
 from pathlib import Path
 
+from genevals.core.types import Output
 from genevals.executors.base import Executor
 
 
@@ -56,22 +61,40 @@ class CachedExecutor(Executor):
     def misses(self) -> int:
         return self._misses
 
-    async def complete(self, prompt: str) -> str:
-        key = self._key(prompt)
+    async def _get_cached(self, key: str) -> str | None:
         async with self._lock:
             if key in self._cache:
                 self._hits += 1
                 return self._cache[key]
             self._misses += 1
+            return None
+
+    async def _store(self, key: str, text: str) -> None:
+        async with self._lock:
+            self._cache[key] = text
+            if self._path:
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+                with self._path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps({"key": key, "value": text}) + "\n")
+
+    async def complete(self, prompt: str) -> str:
+        key = self._key(prompt)
+        cached = await self._get_cached(key)
+        if cached is not None:
+            return cached
 
         result = self._inner.complete(prompt)
         if inspect.isawaitable(result):
             result = await result
-
-        async with self._lock:
-            self._cache[key] = result
-            if self._path:
-                self._path.parent.mkdir(parents=True, exist_ok=True)
-                with self._path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps({"key": key, "value": result}) + "\n")
+        await self._store(key, result)
         return result
+
+    async def generate(self, prompt: str) -> Output:
+        key = self._key(prompt)
+        cached = await self._get_cached(key)
+        if cached is not None:
+            return Output(text=cached, latency_ms=0.0, cost_usd=0.0, raw={"cached": True})
+
+        output = await self._inner.generate(prompt)
+        await self._store(key, output.text)
+        return output

@@ -64,3 +64,41 @@ async def test_callable_via_dunder_call_still_caches():
     await cached("same prompt")
 
     assert inner.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_cache_miss_returns_real_output():
+    inner = CountingExecutor()
+    cached = CachedExecutor(inner)
+
+    output = await cached.generate("hello")
+
+    assert output.text == "response to hello (#1)"
+    assert inner.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_cache_hit_reports_zero_cost_and_is_marked_cached():
+    inner = CountingExecutor()
+    cached = CachedExecutor(inner)
+
+    first = await cached.generate("hello")
+    second = await cached.generate("hello")
+
+    assert second.text == first.text
+    assert inner.calls == 1  # the hit never touched the inner executor
+    assert second.cost_usd == 0.0
+    assert second.latency_ms == 0.0
+    assert second.raw == {"cached": True}
+
+
+@pytest.mark.asyncio
+async def test_complete_and_generate_share_the_same_cache():
+    inner = CountingExecutor()
+    cached = CachedExecutor(inner)
+
+    text = await cached.complete("hello")
+    output = await cached.generate("hello")
+
+    assert output.text == text
+    assert inner.calls == 1

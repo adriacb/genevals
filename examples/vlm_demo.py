@@ -21,12 +21,16 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import sys
+import time
 from pathlib import Path
 
-from genevals import Dataset, Evaluator, Sample, SimpleTarget
-from genevals.executors.anthropic import AnthropicExecutor
+from genevals import Dataset, Evaluator, Output, Sample, SimpleTarget
+from genevals.executors._pricing import cost_from_usage
+from genevals.executors.anthropic import DEFAULT_PRICING, AnthropicExecutor
 from genevals.judges.llm_judge import LLMJudge
 from genevals.judges.metric_adapter import JudgeMetric
+from genevals.metrics.operational import Cost, Latency
 from genevals.metrics.text import Contains
 
 HERE = Path(__file__).parent
@@ -57,16 +61,21 @@ def _get_api_key() -> str:
 def main() -> None:
     from anthropic import AsyncAnthropic
 
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # model output can contain any Unicode
     client = AsyncAnthropic(api_key=_get_api_key())
 
-    async def vision_answer(sample: Sample) -> str:
+    async def vision_answer(sample: Sample) -> Output:
         """Not an Executor: Executor.complete(prompt: str) is text-only by
         design (see genevals.executors.base). A VLM target just calls the
         provider directly with an image content block — SimpleTarget doesn't
-        care what a target does internally, only that it returns text."""
+        care what a target does internally, only that it returns text or a
+        full Output. Returning Output (rather than a bare str) is what wires
+        latency_ms/cost_usd, the same way AnthropicExecutor.generate() does."""
         image_path = HERE / sample.metadata["image_path"]
         media_type = mimetypes.guess_type(str(image_path))[0] or "image/jpeg"
         image_b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
+
+        start = time.perf_counter()
         message = await client.messages.create(
             model=MODEL,
             max_tokens=150,
@@ -80,9 +89,18 @@ def main() -> None:
                 }
             ],
         )
+        latency_ms = (time.perf_counter() - start) * 1000
+
         # Same defensive filtering as AnthropicExecutor.complete: don't assume content[0] is text.
         text_blocks = [b.text for b in message.content if getattr(b, "type", None) == "text"]
-        return "".join(text_blocks)
+        text = "".join(text_blocks)
+
+        usage = getattr(message, "usage", None)
+        input_tokens = getattr(usage, "input_tokens", None) if usage else None
+        output_tokens = getattr(usage, "output_tokens", None) if usage else None
+        cost_usd = cost_from_usage(MODEL, input_tokens, output_tokens, DEFAULT_PRICING)
+
+        return Output(text=text, latency_ms=latency_ms, cost_usd=cost_usd)
 
     judge_executor = AnthropicExecutor(client, model=MODEL, max_tokens=150)
     judge = LLMJudge("claude-judge", judge_executor)
@@ -97,6 +115,8 @@ def main() -> None:
             criteria="Does the response correctly identify what is shown in the image, matching the reference?",
             threshold=0.5,
         ),
+        Latency(),
+        Cost(),
     ]
 
     report = Evaluator(dataset, [target], metrics, concurrency=3).run()

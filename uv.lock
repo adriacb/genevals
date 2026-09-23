@@ -917,6 +917,9 @@ inspect = [
 jev = [
     { name = "httpx" },
 ]
+openai = [
+    { name = "openai" },
+]
 rag = [
     { name = "ragas" },
 ]
@@ -936,11 +939,12 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.40" },
     { name = "httpx", marker = "extra == 'jev'", specifier = ">=0.27" },
     { name = "inspect-ai", marker = "extra == 'inspect'", specifier = ">=0.3" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.40" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ragas", marker = "extra == 'rag'", specifier = ">=0.2" },
 ]
-provides-extras = ["rag", "inspect", "jev", "anthropic"]
+provides-extras = ["rag", "inspect", "jev", "anthropic", "openai"]
 
 [package.metadata.requires-dev]
 dev = [

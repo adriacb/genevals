@@ -20,6 +20,7 @@ uv add "genevals[rag]"      # + ragas-backed RAG metrics
 uv add "genevals[inspect]"  # + the inspect_ai backend
 uv add "genevals[jev]"      # + the experimental Jev judge backend
 uv add "genevals[anthropic]"  # + AnthropicExecutor
+uv add "genevals[openai]"     # + OpenAIExecutor (also covers Azure OpenAI, vLLM, Ollama, ... via base_url)
 ```
 
 ## Quickstart
@@ -59,6 +60,10 @@ report.to_yaml("report.yaml")
   needed — the image rides in `Sample.metadata`, and the target is just a
   `SimpleTarget` calling the provider with a multimodal request instead of a
   plain-text one.
+- `examples/custom_executor_demo.py` — two patterns for a fully custom
+  Executor, runnable offline (no API key, no network): wrapping any
+  Executor to inject fixed business context into every prompt, and a raw
+  stdlib-HTTP Executor with no provider SDK at all.
 
 ## Concepts
 
@@ -92,13 +97,34 @@ report.to_yaml("report.yaml")
   needs the `inspect` extra) hands the same inputs to UK AISI's `inspect_ai`
   for its sandboxing/logging/prebuilt-eval ecosystem. Implement
   `genevals.backends.base.EvalBackend` to plug in another harness.
-- **Executor** (`genevals.executors`) — a one-method interface (`complete(prompt) -> str`)
-  around a provider call, so you build one object per model and reuse it as
-  both the target under test and the judge scoring it, instead of writing two
-  near-identical closures. `AnthropicExecutor` (needs the `anthropic` extra)
-  is the first concrete one; it's callable directly, so it drops straight
-  into `LLMJudge("name", executor)` or `SimpleTarget("name", lambda s:
-  executor.complete(s.input))`.
+- **Executor** (`genevals.executors`) — a one-method interface
+  (`complete(prompt) -> str`) around a provider call, so you build one
+  object per model and reuse it as both the target under test and the judge
+  scoring it, instead of writing two near-identical closures. Use
+  `.complete` (or the Executor directly) for a `Judge` — text only; use
+  `.generate(prompt) -> Output` for a `Target` — same call, but latency and
+  (for `AnthropicExecutor`/`OpenAIExecutor`, which see real token usage)
+  `cost_usd` ride along into the report for free:
+
+  ```python
+  executor = AnthropicExecutor(client, model="claude-haiku-4-5-20251001")
+  judge = LLMJudge("claude-judge", executor)                             # text only
+  target = SimpleTarget("claude", lambda s: executor.generate(s.input))  # + cost/latency
+  ```
+
+  `AnthropicExecutor` (needs the `anthropic` extra) and `OpenAIExecutor`
+  (needs the `openai` extra — also covers Azure OpenAI, vLLM's
+  OpenAI-compatible server, Ollama, and anything else speaking the same API
+  via `base_url=`) are the two provider ones. `CachedExecutor` wraps any
+  Executor to cache identical prompts (in-memory or a JSONL file) — see
+  "Reliability" below. For a provider genevals doesn't ship, or per-instance
+  extra context (a fixed persona/business rules), `Executor.__init__` isn't
+  constrained by the interface at all — see
+  `examples/custom_executor_demo.py` for both a wrapper that injects fixed
+  context into every prompt and a from-scratch stdlib-only HTTP Executor.
+  (For Anthropic/OpenAI specifically, a fixed system prompt is simpler:
+  `AnthropicExecutor(client, system="You are Acme Corp's support agent...")`
+  — it's forwarded straight through to the API.)
 - **genevals.validation** — calibrate a `Judge` against a labeled gold set
   (accuracy / MAE / Pearson r, plus a list of disagreements) before trusting
   it for CI gating. Judges can be internally consistent while still
@@ -165,6 +191,16 @@ report.to_yaml("report.yaml")
   noticing a problem *while the run is happening* (a progress bar, a log
   line, an alert) — failures are recorded in the report either way, with or
   without a listener. See `examples/quickstart.py` for a minimal one.
+- **Cost tracking is real, not a stub** — `AnthropicExecutor`/`OpenAIExecutor`
+  read `response.usage` and price it against a built-in table (a cached
+  snapshot of each provider's published rates — pass `pricing=` to override
+  or extend it), verified against the live Anthropic API in
+  `anthropic_live_demo.py`/`public_dataset_demo.py`/`vlm_demo.py`. Use
+  `.generate()` rather than `.complete()` when wiring a Target (see
+  "Executor" above) so `cost_usd`/`latency_ms` actually land in `Output`; add
+  `Cost()`/`Latency()` (`genevals.metrics.operational`) to your metric list
+  to see them in the report. A `CachedExecutor` hit correctly reports
+  `cost_usd=0.0` — no new spend happened.
 
 **A real example of why `compare_targets` matters**: `public_dataset_demo.py`
 compares direct vs. chain-of-thought prompting and its `correctness` judge

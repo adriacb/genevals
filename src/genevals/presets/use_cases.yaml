@@ -37,6 +37,9 @@ use_cases:
       - name: latency_ms
         kind: catalog
         catalog_name: latency_ms
+      - name: cost_usd
+        kind: catalog
+        catalog_name: cost_usd
 
   chatbot_tools:
     description: >-
@@ -64,6 +67,9 @@ use_cases:
       - name: latency_ms
         kind: catalog
         catalog_name: latency_ms
+      - name: cost_usd
+        kind: catalog
+        catalog_name: cost_usd
 
   generative_flow:
     description: >-
@@ -84,6 +90,9 @@ use_cases:
       - name: latency_ms
         kind: catalog
         catalog_name: latency_ms
+      - name: cost_usd
+        kind: catalog
+        catalog_name: cost_usd
 
   rag:
     description: >-

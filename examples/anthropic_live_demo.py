@@ -13,12 +13,14 @@ Run with: uv run --extra anthropic python examples/anthropic_live_demo.py
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from genevals import Dataset, Evaluator, SimpleTarget
 from genevals.executors.anthropic import AnthropicExecutor
 from genevals.judges.llm_judge import LLMJudge
 from genevals.judges.metric_adapter import JudgeMetric
+from genevals.metrics.operational import Cost, Latency
 from genevals.metrics.text import Contains
 
 HERE = Path(__file__).parent
@@ -50,6 +52,7 @@ def _get_api_key() -> str:
 def main() -> None:
     from anthropic import AsyncAnthropic
 
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # model output can contain any Unicode
     # One shared client, two Executors (same one-method interface) with
     # different token budgets: the target answers, the judge just scores.
     client = AsyncAnthropic(api_key=_get_api_key())
@@ -57,7 +60,8 @@ def main() -> None:
     judge_executor = AnthropicExecutor(client, model=MODEL, max_tokens=200)
 
     dataset = Dataset.load(HERE / "sample_dataset.jsonl", name="anthropic-live")
-    target = SimpleTarget("claude-haiku", lambda sample: target_executor.complete(sample.input), tags={"model": MODEL})
+    # .generate() (not .complete()) so the real cost/latency Anthropic reports ride into Output.
+    target = SimpleTarget("claude-haiku", lambda sample: target_executor.generate(sample.input), tags={"model": MODEL})
     judge = LLMJudge("claude-judge", judge_executor)
 
     metrics = [
@@ -68,6 +72,8 @@ def main() -> None:
             criteria="Does the response correctly answer the question, matching the reference answer in meaning?",
             threshold=0.5,
         ),
+        Latency(),
+        Cost(),
     ]
 
     report = Evaluator(dataset, [target], metrics, concurrency=2).run()
@@ -84,6 +90,7 @@ def main() -> None:
             f"judge_score={judge_score.value if judge_score else None}  "
             f"rationale={judge_score.rationale if judge_score else None}"
         )
+        print(f"    latency_ms={r.output.latency_ms:.0f}  cost_usd={r.output.cost_usd}  raw={r.output.raw}")
 
     print("\nsummary:", report.summary["per_target"])
     print(f"wrote {HERE / 'anthropic_live_report.html'}")
